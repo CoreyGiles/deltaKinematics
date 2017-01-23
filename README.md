@@ -1,1 +1,1 @@
-# deltaKinomatics
+# deltaKinematics
