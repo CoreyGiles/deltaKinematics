@@ -1,4 +1,4 @@
-#################     This is the Teacup firmware written in R
+#################     This is the Teacup firware written in R
 
 ##    Initial printer and board setup
 F_CPU<-16000000                 ## Hz
@@ -76,7 +76,7 @@ dda_find_crossing_speed<-function(prev=NULL,current) {
   dv<-integer(1)
   
   if(is.null(prev))  {
-    print(0)
+    return(current)
   }
   
   F<-prev$endpoint$F
@@ -117,6 +117,7 @@ start<-list(axis=list(X=as.integer(0),Y=as.integer(0),Z=as.integer(0)),F=as.inte
 nextTarget<-list(axis=list(X=as.integer(10100),Y=as.integer(3500),Z=as.integer(200)),F=as.integer(3000))    ### Axis locations in um
 
 ##    Inside DDA_Create
+prev_dda<-NULL
 dda<-list(endpoint=nextTarget,delta=list(X=integer(0),Y=integer(0),Z=integer(0)), crossF=0, start_steps=0, end_steps=0)
 delta_um<-integer(3)
 steps<-integer(3)
@@ -169,7 +170,7 @@ if(dda$total_steps!=0) {
   }
   c_limit<-c_limit/dda$total_steps * (F_CPU / 40000)
   
-  dda$c_min<-move_duration/dda$endpoint$F
+  dda$c_min<-as.integer(move_duration/dda$endpoint$F)             # This would be multiply with the above
   if(dda$c_min<c_limit) {
     dda$c_min<-c_limit
     dda$endpoint$F<-move_duration/dda$c_min
@@ -184,4 +185,3 @@ if(dda$total_steps!=0) {
   dda$distance<-distance
   dda<-dda_find_crossing_speed(prev_dda,dda)
 }
-
