@@ -20,6 +20,18 @@ MAX_JERK_Y<-200                 ## mm/min
 MAX_JERK_Z<-200                 ## mm/min
 MAX_JERK_E<-200                 ## mm/min
 
+dDiagonalRod<-200000           ## Diagonal rod 200 mm (200000 um)
+dRadius<-100000                ## Projected radius downward from diagonal rod (100000 um)
+towerXAngle<-210            ## Degrees of towerX
+towerYAngle<-330            ## Degrees of tower
+towerZAngle<-90             ## Degrees of tower
+dTower1x<-(cos(towerXAngle*pi/180)*dRadius)
+dTower1y<-(sin(towerXAngle*pi/180)*dRadius)
+dTower2x<-(cos(towerYAngle*pi/180)*dRadius)
+dTower2y<-(sin(towerYAngle*pi/180)*dRadius)
+dTower3x<-(cos(towerZAngle*pi/180)*dRadius)
+dTower3y<-(sin(towerZAngle*pi/180)*dRadius)
+
 ##    Some precomputed values
 c_initial<-c(F_CPU/sqrt(STEPS_PER_M_X*ACCELERATION/2000),
              F_CPU/sqrt(STEPS_PER_M_Y*ACCELERATION/2000),
@@ -36,6 +48,13 @@ carthesian_to_carthesian<-function(start,target,delta_um,steps) {
   steps[3]<-target$axis$Z*STEPS_PER_M_Z/1000000
   delta_um<<-delta_um
   steps<<-steps
+}
+
+cartesianToDelta<-function(X,Y,Z) {
+  dX<-sqrt(dDiagonalRod^2 - (dTower1x-X)^2 - (dTower1y-Y)^2) + Z
+  dY<-sqrt(dDiagonalRod^2 - (dTower2x-X)^2 - (dTower2y-Y)^2) + Z
+  dZ<-sqrt(dDiagonalRod^2 - (dTower3x-X)^2 - (dTower3y-Y)^2) + Z
+  return(c(dX,dY,dZ))
 }
 
 ##    Save direction of axis movement
@@ -210,7 +229,7 @@ if(dda$total_steps!=0) {
   for(i in 1:3) {
     md_candidate<-dda$delta[[i]]*((F_CPU*60)/(MAXIMUM_FEEDRATE_X*1000))       ## Will slow down the whole movement if one axis is slower
     if(md_candidate>move_duration) {
-      move_duration<-md_candidate
+      move_duration<-md_candidate                                             ## md_candidate is in steps, not um
     }
   }
   
@@ -262,3 +281,38 @@ dda$live<-1
 
 #######################################    DDA_CLOCK()   #############################################
 
+#If we calculate the length of time for the total movement in seconds: move_duration (seconds)
+#Then we can calculate how far each axis has to travel each second: travel[i]<-delta_um[i]/move_duration = (um/s)
+#Then we put the travel/second into the partial differential equation:
+#      delta_dx<-(dTower1x+dTower1y-X-Y)/dX        # This should give us the required move distance per second
+#      delta_dy<-(dTower2x+dTower2y-X-Y)/dy        # um per second
+#      delta_dz<-(dTower3x+dTower3y-X-Y)/dz
+#
+#If we multiply  steps_per_second = delta_d* steps_Per_um, we should have number of steps/second
+#1/steps_per_second = seconds/step       Multiply by F_CPU to get ticks per step.
+
+#Update dda$step_interval with the new times
+#If delta_d* is not the same sign as before, update *_direction(dda->*_direction)
+
+###  UPDATE
+#dda$delta is number of steps
+#move_duration is number of ticks for whole move
+#dda$delta/move_duration is steps per tick (will underflow!)
+#if dTower** is measured in step lengths (dDiagonalRod*steps_per_M/1000), delta_d* will provide steps/tick
+#  dx/(dTower1x+dTower1y-X-Y) is ticks/step
+
+###  CORRECTION
+#  delta_d* will prove change in d* per one unit change in X or Y (not per second)
+#  Can we mix units? Make X and Y in mm to ensure delta_d* is always large?
+  
+  X<-Y<-Z<-50000
+  temp<-round(cartesianToDelta(X,Y,Z),5)   ##  It looks like X/Y/Z should be in the same units as rod/radius
+  dX<-temp[1]
+  dY<-temp[2]
+  dZ<-temp[3]
+  delta_dx<-(dTower1x+dTower1y-X-Y)/dX      ##  This ends up being a ratio. Just slightly smaller or larger than 1/-1
+  delta_dy<-(dTower2x+dTower2y-X-Y)/dY      ##  So it doesn't matter what units everything is in, as long as they are the same!
+  delta_dz<-(dTower3x+dTower3y-X-Y)/dZ
+  print(paste(round(delta_dx,2),round(delta_dy,2),round(delta_dz,2)))
+
+  
