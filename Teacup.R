@@ -112,15 +112,25 @@ dda_find_crossing_speed<-function(prev=NULL,current) {
   return(current)
 }
 
+#######################################   DDA_CREATE()    #############################################
+
 ##    Initial target and previous target variables. These are modified GCODE entries
 start<-list(axis=list(X=as.integer(0),Y=as.integer(0),Z=as.integer(0)),F=as.integer(0))    ### Axis locations in um
 nextTarget<-list(axis=list(X=as.integer(10100),Y=as.integer(3500),Z=as.integer(200)),F=as.integer(3000))    ### Axis locations in um
 
+##    For acceleration temporal
+step_interval<-list(X=0xFFFFFFFF,Y=0xFFFFFFFF,Z=0xFFFFFFFF)
+
 ##    Inside DDA_Create
 prev_dda<-NULL
-dda<-list(endpoint=nextTarget,delta=list(X=integer(0),Y=integer(0),Z=integer(0)), crossF=0, start_steps=0, end_steps=0)
+dda<-list(endpoint=nextTarget,delta=list(X=integer(0),Y=integer(0),Z=integer(0)), crossF=0, start_steps=0, end_steps=0,step_interval=step_interval,c=0xFFFFFFFF)
 delta_um<-integer(3)
 steps<-integer(3)
+
+##    Move state tracker
+counter<-list(X=0,Y=0,Z=0)
+time<-list(X=0,Y=0,Z=0)
+move_state<-list(counter=counter,time=time,endstop_stop=0)
 
 carthesian_to_carthesian(start,nextTarget,delta_um,steps)
 for(i in 1:3) {
@@ -144,6 +154,7 @@ for(i in 1:3) {
   }
 }
 
+#######################################   Acceleration Ramping   #############################################
 if(dda$total_steps!=0) {
   distance<-as.integer(sqrt(sum(delta_um^2)))
   
@@ -184,4 +195,70 @@ if(dda$total_steps!=0) {
   
   dda$distance<-distance
   dda<-dda_find_crossing_speed(prev_dda,dda)
+  #Join moves
 }
+
+#######################################   Acceleration Temporal   #############################################
+if(dda$total_steps!=0) {
+  distance<-as.integer(sqrt(sum(delta_um^2)))
+  
+  move_duration<-integer(1)
+  md_candidate<-integer(1)
+  
+  ###   Slightly different from ramping equation
+  move_duration<-distance*((F_CPU*60)/(dda$endpoint$F*1000))                  ## mm.(ticks/min) / (mm.min) = ticks for whole move
+  for(i in 1:3) {
+    md_candidate<-dda$delta[[i]]*((F_CPU*60)/(MAXIMUM_FEEDRATE_X*1000))       ## Will slow down the whole movement if one axis is slower
+    if(md_candidate>move_duration) {
+      move_duration<-md_candidate
+    }
+  }
+  
+  c_limit<-0
+  for(i in 1:3) {
+    c_limit_calc<-(delta_um[i]*24000)/MAXIMUM_FEEDRATE_X
+    if(c_limit_calc>c_limit) {
+      c_limit<-c_limit_calc
+    }
+  }
+  c_limit<-c_limit/dda$total_steps * (F_CPU / 40000)
+  
+  for(i in 1:3) {
+    dda$step_interval[[i]]<-0xFFFFFFFF
+    if(dda$delta[[i]]) {
+      dda$step_interval[[i]]<-move_duration/dda$delta[[i]]
+    }
+  }
+  
+  dda$c<-0xFFFFFFFF
+  dda$axis_to_step<-1
+  for(i in 1:3) {
+    if(dda$step_interval[[i]]<dda$c) {
+      dda$axis_to_step<-i
+      dda$c<-dda$step_interval[[i]]
+    }
+  }
+  
+  prev_dda<-dda
+}
+
+
+#######################################    DDA_START()   #############################################
+#x_direction(dda->x_direction)
+#y_direction(dda->y_direction)
+#z_direction(dda->z_direction)
+#e_direction(dda->e_direction)
+
+move_state$counter$X<-move_state$counter$Y<-move_state$counter$Z<- -bitwShiftR(dda$total_steps,1)
+move_state$endstop_stop<-0
+move_state$steps<-dda$delta
+move_state$time$X<-move_state$time$Y<-move_state$time$Z<-0
+dda$live<-1
+#timer_set(dda$c,0)
+
+#######################################    DDA_STEP()   #############################################
+
+
+
+#######################################    DDA_CLOCK()   #############################################
+
